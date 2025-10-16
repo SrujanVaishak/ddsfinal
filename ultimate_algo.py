@@ -471,12 +471,12 @@ def oi_delta_flow_signal(index):
 # --------- GAMMA SQUEEZE / EXPIRY LAYER ---------
 EXPIRIES = {
     "NIFTY": "20 OCT 2025",
-    "BANKNIFTY": "16 OCT 2025",
-    "SENSEX": "16 OCT 2025",
-    "FINNIFTY": "16 OCT 2025",
-    "MIDCPNIFTY": "16 OCT 2025",
-    "EICHERMOT": "31 OCT 2025",
-    "TRENT": "31 OCT 2025",
+    "BANKNIFTY": "28 OCT 2025",
+    "SENSEX": "23 OCT 2025",
+    "FINNIFTY": "28 OCT 2025",
+    "MIDCPNIFTY": "28 OCT 2025",
+    "EICHERMOT": "28 OCT 2025",
+    "TRENT": "28 OCT 2025",
     "RELIANCE": "28 OCT 2025"
 }
 
