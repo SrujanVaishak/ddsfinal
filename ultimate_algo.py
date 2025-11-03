@@ -1,4 +1,4 @@
-# ultimate_algo.py - FIXED EOD REPORT VERSION
+# ultimate_algo.py - INSTITUTIONAL BIG MOVE EDITION
 import os
 import time
 import requests
@@ -38,6 +38,12 @@ VOLUME_GAP_IMBALANCE = 2.5
 OTE_RETRACEMENT_LEVELS = [0.618, 0.786]
 DEMAND_SUPPLY_ZONE_LOOKBACK = 20
 
+# INSTITUTIONAL THRESHOLDS
+SWEEP_ORDER_MIN_LOTS = 50000
+UNUSUAL_PREMIUM_THRESHOLD = 5000000
+GAMMA_FLIP_THRESHOLD = 0.7
+LIQUIDITY_GRAB_DISTANCE = 0.003
+
 # --------- EXPIRIES FOR ALL INDICES ---------
 EXPIRIES = {
     "NIFTY": "04 NOV 2025",
@@ -52,6 +58,17 @@ EXPIRIES = {
 
 # --------- STRATEGY TRACKING ---------
 STRATEGY_NAMES = {
+    # INSTITUTIONAL STRATEGIES
+    "sweep_order_detection": "SWEEP ORDER DETECTION",
+    "unusual_options_flow": "UNUSUAL OPTIONS FLOW", 
+    "volume_profile_breakout": "VOLUME PROFILE BREAKOUT",
+    "futures_roll_pressure": "FUTURES ROLL PRESSURE",
+    "liquidity_grab_setup": "LIQUIDITY GRAB SETUP",
+    "gamma_exposure_flip": "GAMMA EXPOSURE FLIP",
+    "smart_money_divergence": "SMART MONEY DIVERGENCE",
+    "institutional_accumulation": "INSTITUTIONAL ACCUMULATION",
+    
+    # EXISTING STRATEGIES
     "institutional_price_action": "INSTITUTIONAL PRICE ACTION",
     "opening_play": "OPENING PLAY", 
     "gamma_squeeze": "GAMMA SQUEEZE",
@@ -60,7 +77,6 @@ STRATEGY_NAMES = {
     "vcp_pattern": "VCP PATTERN",
     "faulty_bases": "FAULTY BASES",
     "peak_rejection": "PEAK REJECTION",
-    "smart_money_divergence": "SMART MONEY DIVERGENCE",
     "stop_hunt": "STOP HUNT",
     "institutional_continuation": "INSTITUTIONAL CONTINUATION",
     "fair_value_gap": "FAIR VALUE GAP",
@@ -197,6 +213,207 @@ def fetch_option_price(symbol, retries=3, delay=3):
             return float(data['data']['ltp'])
         except:
             time.sleep(delay)
+    return None
+
+# --------- INSTITUTIONAL FLOW DETECTORS ---------
+
+def detect_sweep_orders(index):
+    """Detect when institutions sweep multiple strikes simultaneously"""
+    try:
+        url = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
+        df_chain = pd.DataFrame(requests.get(url, timeout=10).json())
+        df_chain = df_chain[df_chain['symbol'].str.contains(index, na=False)]
+        
+        df_chain['oi'] = pd.to_numeric(df_chain['oi'], errors='coerce')
+        df_chain['oi_change'] = df_chain.groupby('symbol')['oi'].diff().fillna(0)
+        
+        ce_sweeps = df_chain[
+            (df_chain['symbol'].str.endswith("CE")) & 
+            (df_chain['oi_change'] > SWEEP_ORDER_MIN_LOTS)
+        ]
+        
+        pe_sweeps = df_chain[
+            (df_chain['symbol'].str.endswith("PE")) &
+            (df_chain['oi_change'] > SWEEP_ORDER_MIN_LOTS) 
+        ]
+        
+        if len(ce_sweeps) > len(pe_sweeps) * 1.5:
+            return "CE"
+        elif len(pe_sweeps) > len(ce_sweeps) * 1.5:
+            return "PE"
+            
+    except Exception as e:
+        print(f"Sweep order error: {e}")
+    return None
+
+def detect_unusual_options_flow(index):
+    """Detect large premium trades and block deals"""
+    try:
+        url = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
+        df_chain = pd.DataFrame(requests.get(url, timeout=10).json())
+        df_chain = df_chain[df_chain['symbol'].str.contains(index, na=False)]
+        
+        df_chain['ltp'] = pd.to_numeric(df_chain['ltp'], errors='coerce')
+        df_chain['oi'] = pd.to_numeric(df_chain['oi'], errors='coerce')
+        df_chain['premium_flow'] = df_chain['ltp'] * df_chain['oi'] * 25
+        
+        unusual_ce = df_chain[
+            (df_chain['symbol'].str.endswith("CE")) &
+            (df_chain['premium_flow'] > UNUSUAL_PREMIUM_THRESHOLD)
+        ]
+        
+        unusual_pe = df_chain[
+            (df_chain['symbol'].str.endswith("PE")) & 
+            (df_chain['premium_flow'] > UNUSUAL_PREMIUM_THRESHOLD)
+        ]
+        
+        if len(unusual_ce) > len(unusual_pe):
+            return "CE"
+        elif len(unusual_pe) > len(unusual_ce):
+            return "PE"
+            
+    except Exception as e:
+        print(f"Unusual flow error: {e}")
+    return None
+
+def detect_volume_profile_breakout(df):
+    """Volume Profile Point of Control breakouts"""
+    try:
+        high = ensure_series(df['High'])
+        low = ensure_series(df['Low'])
+        close = ensure_series(df['Close']) 
+        volume = ensure_series(df['Volume'])
+        
+        price_levels = np.linspace(float(low.min()), float(high.max()), 20)
+        volume_profile = {}
+        
+        for i in range(len(close)):
+            price = float(close.iloc[i])
+            vol = float(volume.iloc[i])
+            level = min(price_levels, key=lambda x: abs(x - price))
+            volume_profile[level] = volume_profile.get(level, 0) + vol
+        
+        if volume_profile:
+            poc = max(volume_profile, key=volume_profile.get)
+            current_price = float(close.iloc[-1])
+            
+            if (current_price > poc and 
+                float(volume.iloc[-1]) > float(volume.rolling(20).mean().iloc[-1]) * 1.8):
+                return "CE"
+                
+            elif (current_price < poc and
+                  float(volume.iloc[-1]) > float(volume.rolling(20).mean().iloc[-1]) * 1.8):
+                return "PE"
+                  
+    except Exception as e:
+        print(f"Volume profile error: {e}")
+    return None
+
+def detect_futures_roll_pressure(index):
+    """Detect institutional futures roll activity"""
+    try:
+        expiry_date = datetime.strptime(EXPIRIES[index], "%d %b %Y")
+        days_to_expiry = (expiry_date - datetime.now()).days
+        
+        if days_to_expiry <= 2:
+            df_fut = fetch_index_data(index, "5m", "1d")
+            if df_fut is not None:
+                volume = ensure_series(df_fut['Volume'])
+                current_vol = float(volume.iloc[-1])
+                avg_vol = float(volume.rolling(20).mean().iloc[-1])
+                
+                if current_vol > avg_vol * 2.0:
+                    close = ensure_series(df_fut['Close'])
+                    if float(close.iloc[-1]) > float(close.iloc[-2]):
+                        return "CE"
+                    else:
+                        return "PE"
+                        
+    except Exception as e:
+        print(f"Futures roll error: {e}")
+    return None
+
+def detect_liquidity_grab_setup(df):
+    """Detect institutional stop hunts and liquidity grabs"""
+    try:
+        high = ensure_series(df['High'])
+        low = ensure_series(df['Low'])
+        close = ensure_series(df['Close'])
+        volume = ensure_series(df['Volume'])
+        
+        recent_high = float(high.rolling(10).max().iloc[-2])
+        recent_low = float(low.rolling(10).min().iloc[-2])
+        current_price = float(close.iloc[-1])
+        
+        if (current_price > recent_high * (1 + LIQUIDITY_GRAB_DISTANCE) and
+            float(volume.iloc[-1]) > float(volume.rolling(20).mean().iloc[-1]) * 1.5):
+            return "PE"
+            
+        elif (current_price < recent_low * (1 - LIQUIDITY_GRAB_DISTANCE) and
+              float(volume.iloc[-1]) > float(volume.rolling(20).mean().iloc[-1]) * 1.5):
+            return "CE"
+              
+    except Exception as e:
+        print(f"Liquidity grab error: {e}")
+    return None
+
+def detect_gamma_exposure_flip(index):
+    """Detect gamma squeeze conditions"""
+    try:
+        url = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
+        df_chain = pd.DataFrame(requests.get(url, timeout=10).json())
+        df_chain = df_chain[df_chain['symbol'].str.contains(index, na=False)]
+        
+        df_chain['oi'] = pd.to_numeric(df_chain['oi'], errors='coerce')
+        df_chain['strike'] = df_chain['symbol'].str.extract(r'(\d+)')[0].astype(float)
+        
+        df_index = fetch_index_data(index, "5m", "1d")
+        if df_index is None:
+            return None
+            
+        current_price = float(ensure_series(df_index['Close']).iloc[-1])
+        
+        near_strikes = df_chain[
+            (df_chain['strike'] >= current_price * 0.98) & 
+            (df_chain['strike'] <= current_price * 1.02)
+        ]
+        
+        if len(near_strikes) > 0:
+            total_oi = near_strikes['oi'].sum()
+            avg_oi = df_chain['oi'].mean()
+            
+            if total_oi > avg_oi * GAMMA_FLIP_THRESHOLD:
+                if current_price > near_strikes['strike'].max():
+                    return "CE"
+                elif current_price < near_strikes['strike'].min():
+                    return "PE"
+                    
+    except Exception as e:
+        print(f"Gamma exposure error: {e}")
+    return None
+
+def detect_institutional_accumulation(df):
+    """Detect where big money is accumulating positions"""
+    try:
+        close = ensure_series(df['Close'])
+        volume = ensure_series(df['Volume'])
+        high = ensure_series(df['High'])
+        low = ensure_series(df['Low'])
+        
+        current_volume = float(volume.iloc[-1])
+        avg_volume = float(volume.rolling(20).mean().iloc[-1])
+        price_range = float(high.iloc[-1]) - float(low.iloc[-1])
+        
+        if (current_volume > avg_volume * 1.5 and 
+            price_range < (float(high.rolling(10).mean().iloc[-1]) - float(low.rolling(10).mean().iloc[-1])) * 0.6):
+            
+            if float(close.iloc[-1]) > float(close.iloc[-2]):
+                return "CE"
+            elif float(close.iloc[-1]) < float(close.iloc[-2]):
+                return "PE"
+                
+    except Exception as e:
+        print(f"Accumulation error: {e}")
     return None
 
 # --------- DETECT LIQUIDITY ZONE ---------
@@ -881,6 +1098,36 @@ def analyze_index_signal(index):
     except:
         pass
 
+    # 🚨 INSTITUTIONAL FLOW DETECTION - CHECK THESE FIRST FOR BIG MOVES
+    sweep_signal = detect_sweep_orders(index)
+    if sweep_signal:
+        return sweep_signal, df5, False, "sweep_order_detection"
+
+    unusual_signal = detect_unusual_options_flow(index) 
+    if unusual_signal:
+        return unusual_signal, df5, False, "unusual_options_flow"
+
+    gamma_exp_signal = detect_gamma_exposure_flip(index)
+    if gamma_exp_signal:
+        return gamma_exp_signal, df5, False, "gamma_exposure_flip"
+
+    volume_profile_signal = detect_volume_profile_breakout(df5)
+    if volume_profile_signal:
+        return volume_profile_signal, df5, False, "volume_profile_breakout"
+
+    futures_signal = detect_futures_roll_pressure(index)
+    if futures_signal:
+        return futures_signal, df5, False, "futures_roll_pressure"
+
+    liquidity_grab_signal = detect_liquidity_grab_setup(df5)
+    if liquidity_grab_signal:
+        return liquidity_grab_signal, df5, True, "liquidity_grab_setup"
+
+    accumulation_signal = detect_institutional_accumulation(df5)
+    if accumulation_signal:
+        return accumulation_signal, df5, False, "institutional_accumulation"
+
+    # Continue with your existing strategies
     institutional_pa_signal = institutional_price_action_signal(df5)
     if institutional_pa_signal:
         if institutional_momentum_confirmation(index, df5, institutional_pa_signal):
@@ -1272,7 +1519,7 @@ def send_individual_signal_reports():
     for i, signal in enumerate(unique_signals, 1):
         targets_hit_list = []
         if signal.get('targets_hit', 0) > 0:
-            for j in range(signal.get('targets_hit', 0)):
+            for j in range(signal.get('targets_hit', 0):
                 if j < len(signal.get('targets', [])):
                     targets_hit_list.append(str(signal['targets'][j]))
         
