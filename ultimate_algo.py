@@ -1519,7 +1519,7 @@ def send_individual_signal_reports():
     for i, signal in enumerate(unique_signals, 1):
         targets_hit_list = []
         if signal.get('targets_hit', 0) > 0:
-            for j in range(signal.get('targets_hit', 0):
+            for j in range(signal.get('targets_hit', 0)):
                 if j < len(signal.get('targets', [])):
                     targets_hit_list.append(str(signal['targets'][j]))
         
