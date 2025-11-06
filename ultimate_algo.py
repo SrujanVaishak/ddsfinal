@@ -222,7 +222,8 @@ def detect_sweep_orders(index):
     try:
         url = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
         df_chain = pd.DataFrame(requests.get(url, timeout=10).json())
-        df_chain = df_chain[df_chain['symbol'].str.contains(index, na=False)]
+        # 🚨 CRITICAL FIX: Exact index matching to prevent cross-contamination
+        df_chain = df_chain[df_chain['symbol'].str.startswith(index)]
         
         df_chain['oi'] = pd.to_numeric(df_chain['oi'], errors='coerce')
         df_chain['oi_change'] = df_chain.groupby('symbol')['oi'].diff().fillna(0)
@@ -251,7 +252,8 @@ def detect_unusual_options_flow(index):
     try:
         url = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
         df_chain = pd.DataFrame(requests.get(url, timeout=10).json())
-        df_chain = df_chain[df_chain['symbol'].str.contains(index, na=False)]
+        # 🚨 CRITICAL FIX: Exact index matching
+        df_chain = df_chain[df_chain['symbol'].str.startswith(index)]
         
         df_chain['ltp'] = pd.to_numeric(df_chain['ltp'], errors='coerce')
         df_chain['oi'] = pd.to_numeric(df_chain['oi'], errors='coerce')
@@ -362,7 +364,8 @@ def detect_gamma_exposure_flip(index):
     try:
         url = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
         df_chain = pd.DataFrame(requests.get(url, timeout=10).json())
-        df_chain = df_chain[df_chain['symbol'].str.contains(index, na=False)]
+        # 🚨 CRITICAL FIX: Exact index matching
+        df_chain = df_chain[df_chain['symbol'].str.startswith(index)]
         
         df_chain['oi'] = pd.to_numeric(df_chain['oi'], errors='coerce')
         df_chain['strike'] = df_chain['symbol'].str.extract(r'(\d+)')[0].astype(float)
@@ -636,7 +639,8 @@ def detect_gamma_squeeze(index, df):
             url=f"https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
             df_s = pd.DataFrame(requests.get(url,timeout=10).json())
             df_s['symbol'] = df_s['symbol'].str.upper()
-            df_index = df_s[df_s['symbol'].str.contains(index)]
+            # 🚨 CRITICAL FIX: Exact index matching
+            df_index = df_s[df_s['symbol'].str.startswith(index)]
             df_index['oi'] = pd.to_numeric(df_index.get('oi',0), errors='coerce').fillna(0)
             ce_oi = df_index[df_index['symbol'].str.endswith("CE")]['oi'].sum()
             pe_oi = df_index[df_index['symbol'].str.endswith("PE")]['oi'].sum()
@@ -1302,8 +1306,8 @@ def oi_delta_flow_signal(index):
         df=df[df['exch_seg'].str.upper().isin(["NFO", "BFO"])]
         df['symbol']=df['symbol'].str.upper()
         
-        # 🚨 CRITICAL FIX: Only check the current index, not all indices
-        df_index=df[df['symbol'].str.contains(f"{index}\\d", regex=True)]  # Exact index match
+        # 🚨 CRITICAL FIX: Exact index matching using startswith instead of contains
+        df_index=df[df['symbol'].str.startswith(index)]
         
         if 'oi' not in df_index.columns:
             return None
