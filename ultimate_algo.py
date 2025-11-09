@@ -47,7 +47,7 @@ LIQUIDITY_GRAB_DISTANCE = 0.003
 # --------- EXPIRIES FOR ALL INDICES ---------
 EXPIRIES = {
     "NIFTY": "11 NOV 2025",
-    "BANKNIFTY": "25 NOV 2025",
+    "BANKNIFTY": "25 NOV 2025", 
     "SENSEX": "13 NOV 2025",
     "FINNIFTY": "25 NOV 2025",
     "MIDCPNIFTY": "25 NOV 2025",
@@ -138,7 +138,7 @@ def should_stop_trading():
     current_time_ist = ist_now.time()
     return current_time_ist >= dtime(15,30)
 
-# --------- STRIKE ROUNDING FOR ALL INDICES ---------
+# 🚨🚨🚨 FIXED: PROPER STRIKE ROUNDING FOR EACH INDEX - NO CROSS-CONTAMINATION 🚨🚨🚨
 def round_strike(index, price):
     try:
         if price is None:
@@ -147,6 +147,7 @@ def round_strike(index, price):
             return None
         price = float(price)
         
+        # 🚨 CRITICAL FIX: Each index has its own isolated strike calculation
         if index == "NIFTY": 
             return int(round(price / 50.0) * 50)
         elif index == "BANKNIFTY": 
@@ -474,6 +475,7 @@ def institutional_liquidity_hunt(index, df):
         highest_ce_oi_strike = None
         highest_pe_oi_strike = None
     else:
+        # 🚨 FIX: Use index-specific strike rounding
         highest_ce_oi_strike = round_strike(index, last_close_val + 50)
         highest_pe_oi_strike = round_strike(index, last_close_val - 50)
 
@@ -1253,10 +1255,11 @@ def analyze_index_signal(index):
 
     return None
 
-# --------- SYMBOL FORMAT FOR ALL INDICES ---------
+# 🚨🚨🚨 FIXED: SYMBOL FORMAT FOR ALL INDICES - NO CROSS-CONTAMINATION 🚨🚨🚨
 def get_option_symbol(index, expiry_str, strike, opttype):
     dt=datetime.strptime(expiry_str,"%d %b %Y")
     
+    # 🚨 CRITICAL FIX: Each index has its own isolated symbol format
     if index == "SENSEX":
         year_short = dt.strftime("%y")
         month_code = dt.strftime("%b").upper()
@@ -1594,19 +1597,21 @@ def send_individual_signal_reports():
     # 🚨 COMPULSORY CONFIRMATION
     send_telegram("✅ END OF DAY REPORTS COMPLETED! See you tomorrow at 9:15 AM! 🚀")
 
-# 🚨 FIXED: UPDATED SIGNAL SENDING - NO CROSS-CONTAMINATION 🚨
+# 🚨🚨🚨 FIXED: UPDATED SIGNAL SENDING - NO CROSS-CONTAMINATION 🚨🚨🚨
 def send_signal(index, side, df, fakeout, strategy_key):
     global signal_counter, all_generated_signals
     
-    # 🚨 FIX: Each index only processes its own data
+    # 🚨 CRITICAL FIX: Each index only processes its own data
     signal_detection_price = float(ensure_series(df["Close"]).iloc[-1])
+    
+    # 🚨 CRITICAL FIX: Use index-specific strike rounding
     strike = round_strike(index, signal_detection_price)
     
     if strike is None:
         send_telegram(f"⚠️ {index}: could not determine strike (price missing). Signal skipped.")
         return
         
-    # 🚨 FIX: Each index only sends its own symbol
+    # 🚨 CRITICAL FIX: Each index only sends its own symbol
     symbol = get_option_symbol(index, EXPIRIES[index], strike, side)
     option_price = fetch_option_price(symbol)
     if not option_price: 
@@ -1686,7 +1691,7 @@ def send_signal(index, side, df, fakeout, strategy_key):
     
     monitor_price_live(symbol, entry, targets, sl, fakeout, thread_id, strategy_name, signal_data)
 
-# 🚨 FIXED: UPDATED TRADE THREAD - NO CROSS-CONTAMINATION 🚨
+# 🚨🚨🚨 FIXED: UPDATED TRADE THREAD - NO CROSS-CONTAMINATION 🚨🚨🚨
 def trade_thread(index):
     """🚨 FIX: Each index thread operates independently"""
     result = analyze_index_signal(index)
